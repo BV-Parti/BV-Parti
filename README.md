@@ -1,6 +1,4 @@
-# BV-Parti (Anonymous Submission)
-
-This repository accompanies a CAV 2026 regular paper submission. It is **anonymized for double-blind review**. Please do not attempt to infer or disclose author identities.
+# BV-Parti
 
 ## Overview
 
