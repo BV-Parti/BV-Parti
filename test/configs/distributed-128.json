@@ -1,0 +1,18 @@
+{
+    "formula_file": "/path/to/BV-Parti/test/instances/bv-sat-0.98.smt2",
+    "output_dir": "/path/to/BV-Parti/test/output/bv-distributed-128",
+    "timeout_seconds": 1200,
+    "base_solver": "bitwuzla-0.8.0-bin",
+    "mode": "distributed",
+    "network_subnet": "192.168.0.0/24",
+    "worker_node_ips": [
+        "192.168.0.10",
+        "192.168.0.11",
+        "192.168.0.12"
+    ],
+    "worker_node_cores": [
+        32,
+        32,
+        64
+    ]
+}

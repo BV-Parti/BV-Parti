@@ -1,0 +1,34 @@
+# clang cache
+.cache
+
+# Python files
+*.pyc
+__pycache__
+
+# Vim swap files
+*.swp
+docs/_build
+
+.DS_Store
+.direnv
+build
+# deps
+
+# BV-Parti
+.vscode
+expr-src
+expr-scripts
+
+
+expr-*.py
+
+bin
+build
+.gdb_history
+
+test/output
+
+compile_commands.json
+
+dev-test-output
+build-fdp-test

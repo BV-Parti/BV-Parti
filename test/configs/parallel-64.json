@@ -1,0 +1,8 @@
+{
+    "formula_file": "test/instances/bv-unsat-7.40.smt2",
+    "output_dir": "test/output/bv-unsat-parallel-64",
+    "timeout_seconds": 1200,
+    "base_solver": "bitwuzla-0.8.0-bin",
+    "mode": "parallel",
+    "parallel_core": 64
+}

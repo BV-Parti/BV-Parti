@@ -1,0 +1,66 @@
+#!/bin/sh
+
+BUILD_DIR="build"
+CLANG_TIDY_CONFIG_FILE=".clang-tidy"
+CLANG_FORMAT_CONFIG_FILE=".clang-format"
+
+case "$(uname -s)" in
+  CYGWIN*|MINGW*|MSYS*)
+    if [ -e "/dev/null" ]; then
+      null_device="/dev/null"
+    else
+      null_device="\\.\NUL"
+    fi
+    ;;
+  *)
+    null_device="/dev/null"
+    ;;
+esac
+
+# Run cmake build with multi-thread option
+if command -v sysctl > $null_device 2>&1; then
+  CPU_CORES=$(sysctl -n hw.ncpu)
+elif command -v nproc > $null_device 2>&1; then
+  CPU_CORES=$(nproc)
+elif [ -n "$NUMBER_OF_PROCESSORS" ]; then
+  CPU_CORES=$NUMBER_OF_PROCESSORS
+else
+  CPU_CORES=1
+fi
+
+cmake_output=$(cmake --build "$BUILD_DIR" -- -j"$CPU_CORES" 2>&1)
+if [ $? -ne 0 ]; then
+  echo "CMake build failed. Aborting commit."
+  echo "$cmake_output"
+  exit 1
+fi
+
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(cpp|h)$')
+if command -v clang-tidy > $null_device 2>&1; then
+  if [ -n "$STAGED_FILES" ]; then
+    for FILE in $STAGED_FILES; do
+      tidy_output=$(clang-tidy -p "$BUILD_DIR" "$FILE" --config-file="$CLANG_TIDY_CONFIG_FILE" -warnings-as-errors="*" 2>&1)
+      if [ $? -ne 0 ]; then
+        echo "clang-tidy failed on $FILE"
+        echo "$tidy_output"
+        exit 1
+      fi
+    done
+  fi
+fi
+
+if command -v clang-format > $null_device 2>&1; then
+  if [ -n "$STAGED_FILES" ]; then
+    for FILE in $STAGED_FILES; do
+      format_output=$(clang-format -i -style="file:$CLANG_FORMAT_CONFIG_FILE" "$FILE" 2>&1)
+      if [ $? -ne 0 ]; then
+        echo "clang-format failed on $FILE"
+        echo "$format_output"
+        exit 1
+      fi
+      git add "$FILE"
+    done
+  fi
+fi
+
+exit 0

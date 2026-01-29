@@ -1,0 +1,39 @@
+Checks: '-*,readability-identifier-naming'
+
+CheckOptions:
+  - key: readability-identifier-naming.VariableCase
+    value: lower_case # variable naming for local variables
+  - key: readability-identifier-naming.GlobalVariableCase
+    value: UPPER_CASE # global variable naming
+  # - key: readability-identifier-naming.GlobalVariablePrefix
+  #   value: g_ # prefix for global variables
+  # - key: readability-identifier-naming.MemberPrefix
+  #   value: d_ # prefix for member variables
+  - key: readability-identifier-naming.MemberCase
+    value: lower_case # naming for member variables
+  - key: readability-identifier-naming.ClassMemberPrefix
+    value: d_ # prefix for class members (override)
+  - key: readability-identifier-naming.ClassMemberCase
+    value: lower_case # naming for class members (override)
+  - key: readability-identifier-naming.EnumCase
+    value: CamelCase # naming for enum types
+  - key: readability-identifier-naming.EnumConstantCase
+    value: UPPER_CASE # naming for enum constants
+  - key: readability-identifier-naming.MacroDefinitionCase
+    value: UPPER_CASE # macro definition naming
+  - key: readability-identifier-naming.ClassCase
+    value: CamelCase # naming for classes
+  - key: readability-identifier-naming.StructCase
+    value: CamelCase # naming for structs
+  - key: readability-identifier-naming.FunctionCase
+    value: lower_case # naming for functions (non-member functions)
+  - key: readability-identifier-naming.ClassMethodCase
+    value: lower_case # naming for class methods (override)
+  - key: readability-identifier-naming.MethodCase
+    value: lower_case # naming for methods
+  - key: readability-identifier-naming.NamespaceCase
+    value: lower_case  # naming for namespaces
+  # - key: readability-identifier-naming.ConstMemberCase
+  #   value: UPPER_CASE # naming for const member variables
+  # - key: readability-identifier-naming.ConstMemberPrefix
+  #   value: c_ # prefix for const member variables

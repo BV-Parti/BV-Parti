@@ -1,0 +1,43 @@
+---
+# Language: None, Cpp, Java, JavaScript, ObjC, Proto, TableGen, TextProto
+Language: Cpp
+BasedOnStyle: Google
+# Offset for access specifiers (public, private, etc.)
+AccessModifierOffset: -2
+# Align trailing comments
+AlignTrailingComments: true
+BinPackArguments: false
+BinPackParameters: false
+# Brace wrapping; effective only when BreakBeforeBraces is set to Custom; other settings below will have no effect
+BraceWrapping :
+    AfterCaseLabel: false
+    AfterClass: false
+    AfterControlStatement: false
+    AfterEnum: false
+    AfterFunction: false
+    AfterStruct: false
+    AfterUnion: false
+    BeforeCatch: true
+    BeforeElse: true
+# Newline before braces
+BreakBeforeBraces: Custom
+# Column limit per line, 0 means no limit
+ColumnLimit: 0
+# Indent access modifiers (public)
+# IndentAccessModifiers: false
+# Indent extern block for backward compatibility
+# IndentExternBlock: AfterExternBlock
+# Indentation width
+IndentWidth: 4
+# Maximum number of consecutive empty lines
+# MaxEmptyLinesToKeep: 1
+# Namespace indentation
+NamespaceIndentation: None
+# Tab width
+TabWidth: 4
+# Use CRLF instead of LF
+UseCRLF: false
+# Use tab characters for indentation: only tabs are used for indenting
+UseTab: Never
+
+PointerAlignment: Right
