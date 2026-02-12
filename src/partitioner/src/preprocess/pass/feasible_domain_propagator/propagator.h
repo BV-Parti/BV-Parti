@@ -44,6 +44,9 @@ class Propagator {
 
     bool has_conflict() const { return d_conflict; }
     void set_conflict() { d_conflict = true; }
+    bool has_partition_unsat() const { return d_partition_unsat; }
+    void mark_partition_unsat() { d_partition_unsat = true; }
+    void clear_partition_unsat() { d_partition_unsat = false; }
     const std::vector<FeasibleDomain>& domains() const { return d_domains; }
     void set_partition_seed(uint64_t seed) { d_partition_seed = seed; }
     bool build_partition_tasks(std::vector<Node>& left,
@@ -64,6 +67,11 @@ class Propagator {
     void propagate_enqueue(uint32_t node_id);
     /** Track nodes whose domains changed in the current propagation round. */
     void collect_changed(uint32_t node_id);
+    /**
+     * On conflict paths we can return before consume_state(), so eagerly
+     * collect nodes that may carry temporary probe state for rollback.
+     */
+    void collect_changed_on_conflict(uint32_t node_id);
     /** Consume and normalize the pending state stored in a domain. */
     Result consume_domain_state(uint32_t node_id);
 
@@ -135,6 +143,7 @@ class Propagator {
 
     std::vector<EncodingMark> d_marks;
     bool d_conflict{false};
+    bool d_partition_unsat{false};
     uint64_t d_partition_seed{0};
 
     std::vector<Node> d_final_nodes;

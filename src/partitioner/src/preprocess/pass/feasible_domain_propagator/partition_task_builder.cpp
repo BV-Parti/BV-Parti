@@ -778,6 +778,7 @@ PartitionTaskBuilder::BranchEval PartitionTaskBuilder::probe_branch(
     }
 
     if (is_conflict(res)) {
+        d_propagator.collect_changed(target_id);
         restore_baseline_nodes();
         eval.d_conflict = true;
         return eval;
@@ -1033,7 +1034,13 @@ bool PartitionTaskBuilder::select_best_action(
         BranchEval right = probe_branch(action, false, overflow_kind);
 
         if (left.d_conflict && right.d_conflict) {
-            d_propagator.d_conflict = true;
+            // display action that caused conflict in both branches
+#ifdef BZLA_FDP_PARTI_INFO
+            std::cout << "Action " << index
+                      << " caused conflict in both branches:\n";
+            action.display();
+#endif
+            d_propagator.mark_partition_unsat();
             return false;
         }
         if (left.d_conflict != right.d_conflict) {
@@ -1047,7 +1054,7 @@ bool PartitionTaskBuilder::select_best_action(
                 if (guard.value<bool>()) {
                     return true;
                 }
-                d_propagator.d_conflict = true;
+                d_propagator.mark_partition_unsat();
                 return false;
             }
             d_forced_common_guards.emplace_back(guard);

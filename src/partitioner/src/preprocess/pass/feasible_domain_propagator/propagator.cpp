@@ -95,6 +95,7 @@ Propagator::Propagator(Env& env, OperatorStatistics& stats)
 
 void Propagator::reset_run_state() {
     d_conflict = false;
+    d_partition_unsat = false;
     d_num_nodes = 0;
     d_num_bool_nodes = 0;
     std::priority_queue<uint32_t>().swap(d_queue);
@@ -231,6 +232,22 @@ void Propagator::collect_changed(uint32_t node_id) {
     if (!d_changed[node_id]) {
         d_changed_nodes.emplace_back(node_id);
         d_changed[node_id] = true;
+    }
+}
+
+void Propagator::collect_changed_on_conflict(uint32_t node_id) {
+    assert(node_id < d_num_nodes);
+    collect_changed(node_id);
+    for (uint32_t child_id : d_children[node_id]) {
+        collect_changed(child_id);
+    }
+    // Conflict may surface before consume_state() runs, so include nodes with
+    // pending updates or queued work to keep rollback complete.
+    for (uint32_t id = 0; id < d_num_nodes; ++id) {
+        if (d_changed[id] || d_enqueued[id] ||
+            !is_unchanged(d_domains[id].pending_state())) {
+            collect_changed(id);
+        }
     }
 }
 
@@ -386,8 +403,10 @@ void Propagator::feasible_domain_propagate() {
         ++d_propagate_cnt;
         propagate_node(node_id);
 
-        if (d_conflict)
+        if (d_conflict) {
+            collect_changed_on_conflict(node_id);
             return;
+        }
 
         Result node_state = consume_domain_state(node_id);
         // only state UPDATED can propagate further
@@ -1473,6 +1492,7 @@ void Propagator::debug_check_frontier(const char* stage_label) {
 
 bool Propagator::build_partition_tasks(std::vector<Node>& left,
                                        std::vector<Node>& right) {
+    clear_partition_unsat();
     PartitionTaskBuilder builder(*this, d_partition_seed);
     return builder.build(left, right);
 }
@@ -1741,7 +1761,7 @@ void PassFeasibleDomainPropagator::apply(AssertionVector& assertions) {
             std::vector<Node> left, right;
             const bool built =
                 partition_propagator.build_partition_tasks(left, right);
-            if (partition_propagator.has_conflict()) {
+            if (partition_propagator.has_partition_unsat()) {
                 std::cerr << "[fdp] partition probing reported conflict; "
                                 "treating as unsat\n";
                 d_conflict = true;
