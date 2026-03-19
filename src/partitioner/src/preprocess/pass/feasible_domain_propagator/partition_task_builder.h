@@ -67,10 +67,6 @@ class PartitionTaskBuilder {
                                    BitVector& limit) const;
     bool select_overflow_compare_child(uint32_t add_id,
                                        uint32_t& child_topo) const;
-    Node action_branch_guard(const PartitionAction& action,
-                             bool take_left,
-                             OverflowSplitKind overflow_kind =
-                                 OverflowSplitKind::COMPARE_CHILD) const;
 
     void normalize_wrapping_interval(const BitVector& l,
                                      const BitVector& u,
@@ -85,12 +81,10 @@ class PartitionTaskBuilder {
     Node mk_interval_upper_lit(const Node& term,
                                const BitVector& bound) const;
     Node mk_bit_lit(const Node& term, uint32_t bit, bool value) const;
+    static const char* overflow_split_kind_to_string(OverflowSplitKind kind);
     void clear_queue();
     void restore_baseline_nodes();
-    BranchEval probe_branch(const PartitionAction& action,
-                            bool take_left,
-                            OverflowSplitKind overflow_kind =
-                                OverflowSplitKind::COMPARE_CHILD);
+    BranchEval probe_branch(const PartitionAction& action, bool take_left);
 
     void collect_action_buckets(
         std::vector<std::vector<PartitionAction>>& buckets) const;

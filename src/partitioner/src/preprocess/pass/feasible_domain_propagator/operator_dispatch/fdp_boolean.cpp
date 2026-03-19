@@ -1,5 +1,6 @@
 #include "fdp_boolean.h"
 
+#include <cassert>
 #include <vector>
 
 #include "preprocess/pass/feasible_domain_propagator/operator_dispatch/fdp_base.h"
@@ -53,9 +54,11 @@ Result FdpNotOperator::apply() {
     return result;
 }
 
-std::vector<uint32_t> FdpNotOperator::implied_by() {
-    return {0};
+bool FdpNotOperator::implied_by(std::vector<uint32_t>& child_ids) {
+    child_ids = {0};
+    return true;
 }
+
 
 Result
 FdpXorOperator::fixed_bits_both_way() {
@@ -109,12 +112,15 @@ Result FdpXorOperator::apply() {
     result |= interval_both_way();
     return result;
 }
-
-std::vector<uint32_t> FdpXorOperator::implied_by() {
-    if (d_children.at(0)->is_totally_fixed() && d_children.at(1)->is_totally_fixed())
-        return {0, 1};
-    else
-        return {};
+bool FdpXorOperator::implied_by(std::vector<uint32_t>& child_ids) {
+    if (d_children.at(0)->is_totally_fixed() && d_children.at(1)->is_totally_fixed()) {
+        child_ids = {0, 1};
+        return true;
+    }
+    else {
+        child_ids = {};
+        return true;
+    }
 }
 
 Result
@@ -213,14 +219,58 @@ Result FdpAndOperator::apply() {
     return result;
 }
 
-std::vector<uint32_t> FdpAndOperator::implied_by() {
-    if (d_self->is_fixed_one(0))
-        return {0, 1};
-    else if (d_children.at(0)->is_fixed_zero(0))
-        return {0};
-    else if (d_children.at(1)->is_fixed_zero(0))
-        return {1};
-    else
-        return {};
+bool FdpAndOperator::implied_by(std::vector<uint32_t>& child_ids) {
+    if (d_self->is_fixed_one(0)) {
+        child_ids = {0, 1};
+        return true;
+    }
+    else {
+        // fixed 0
+        const auto& lc = d_children.at(0);
+        const auto& rc = d_children.at(1);
+
+        const bool lz = lc->is_fixed_zero(0);
+        const bool rz = rc->is_fixed_zero(0);
+        // 0 0, 0 X, X 0, X X
+        // X: ?/1
+        if (lz && rz) {
+            // 0 = 0 and 0
+            // no propagation happened, drop children and myself
+            return false;
+        }
+        else if (lz) {
+            // 0 = 0 and X
+            if (rc->is_totally_fixed()) {
+                // 0 = 0 and 1
+                child_ids = {0};
+                return true;
+            }
+            else {
+                // 0 = 0 and ?
+                // no propagation happened, drop children and myself
+                return false;
+            }
+        }
+        else if (rz) {
+            // 0 = X and 0
+            if (lc->is_totally_fixed()) {
+                // 0 = 1 and 0
+                child_ids = {1};
+                return true;
+            }
+            else {
+                // 0 = ? and 0
+                // no propagation happened, drop children and myself
+                return false;
+            }
+        }
+        else {
+            // 0 = X and X
+            // must be ? and ?, keep myself as frontier
+            // because if there is any 1 here, it will propagate sibling to 0
+            child_ids = {};
+            return true;
+        }
+    }
 }
 }  // namespace bzla::preprocess::pass::fdp

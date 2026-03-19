@@ -18,6 +18,7 @@ enum class EncodingMark : uint8_t {
     BITS,
     INTERVAL,
     BOTH,
+    IMPLIED,
     REMOVED,
 };
 

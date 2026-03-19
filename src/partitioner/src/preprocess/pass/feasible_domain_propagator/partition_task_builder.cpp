@@ -47,9 +47,23 @@ const char* PartitionTaskBuilder::kind_to_string(PartitionKind kind) {
     }
 }
 
+const char* PartitionTaskBuilder::overflow_split_kind_to_string(
+    OverflowSplitKind kind) {
+    switch (kind) {
+        case OverflowSplitKind::COMPARE_CHILD:
+            return "COMPARE_CHILD";
+        case OverflowSplitKind::OUTPUT_BOUNDARY:
+            return "OUTPUT_BOUNDARY";
+        default:
+            return "UNKNOWN";
+    }
+}
+
 struct PartitionTaskBuilder::PartitionAction {
     PartitionKind d_kind{PartitionKind::BV_BIT};
     uint32_t d_node_id{UINT32_MAX};
+    OverflowSplitKind d_overflow_split{
+        OverflowSplitKind::COMPARE_CHILD};
 
     double d_heuristic{0.0};
 
@@ -57,13 +71,20 @@ struct PartitionTaskBuilder::PartitionAction {
         std::cout << "PartitionAction: kind="
                   << PartitionTaskBuilder::kind_to_string(d_kind)
                   << ", node_id=" << d_node_id
-                  << ", heuristic=" << d_heuristic << "\n";
+                  << ", heuristic=" << d_heuristic;
+        if (d_kind == PartitionKind::BV_ADD_OVERFLOW) {
+            std::cout << ", overflow_split="
+                      << PartitionTaskBuilder::overflow_split_kind_to_string(
+                             d_overflow_split);
+        }
+        std::cout << "\n";
     }
 };
 
 struct PartitionTaskBuilder::BranchEval {
     double d_uncertainty_reduction{0.0};
     bool d_conflict{false};
+    bool d_valid{true};
     Node d_guard;
 };
 
@@ -75,6 +96,11 @@ int PartitionTaskBuilder::compare_action_key(
     }
     if (a.d_node_id != b.d_node_id) {
         return a.d_node_id < b.d_node_id ? -1 : 1;
+    }
+    if (a.d_kind == PartitionKind::BV_ADD_OVERFLOW &&
+        b.d_kind == PartitionKind::BV_ADD_OVERFLOW &&
+        a.d_overflow_split != b.d_overflow_split) {
+        return a.d_overflow_split < b.d_overflow_split ? -1 : 1;
     }
     return 0;
 }
@@ -89,7 +115,7 @@ bool PartitionTaskBuilder::build(std::vector<Node>& left,
     if (!init_history()) {
         return false;
     }
-    
+
     compute_partition_heuristics();
 
     std::vector<PartitionAction> actions = collect_partition_actions();
@@ -482,89 +508,6 @@ bool PartitionTaskBuilder::select_overflow_compare_child(
     return true;
 }
 
-Node PartitionTaskBuilder::action_branch_guard(const PartitionAction& action,
-                                               bool take_left,
-                                               OverflowSplitKind overflow_kind) const {
-    const Node& term = d_propagator.d_nodes[action.d_node_id];
-
-    if (action.d_kind == PartitionKind::BOOL) {
-        if (take_left) {
-            return d_propagator.d_rewriter.rewrite(
-                d_propagator.d_nm.mk_node(node::Kind::NOT, {term}));
-        }
-        return term;
-    }
-
-    if (action.d_kind == PartitionKind::BV_BIT) {
-        const FeasibleDomain& dom = baseline_domain(action.d_node_id);
-        const uint32_t bit = choose_partition_bit(action.d_node_id, dom);
-        return mk_bit_lit(term, bit, !take_left);
-    }
-
-    if (action.d_kind == PartitionKind::BV_INTERVAL) {
-        BitVector l;
-        BitVector u;
-        BitVector l2;
-        BitVector u2;
-        if (!compute_interval_split(action.d_node_id, l, u, l2, u2)) {
-            return d_propagator.d_nm.mk_value(true);
-        }
-        return take_left ? mk_interval_upper_lit(term, u)
-                         : mk_interval_lower_lit(term, l2);
-    }
-
-    if (action.d_kind == PartitionKind::BV_ADD_OVERFLOW) {
-        if (overflow_kind == OverflowSplitKind::OUTPUT_BOUNDARY) {
-            BitVector l;
-            BitVector u;
-            BitVector l2;
-            BitVector u2;
-            if (!compute_interval_split(action.d_node_id, l, u, l2, u2)) {
-                return d_propagator.d_nm.mk_value(true);
-            }
-            return take_left ? mk_interval_upper_lit(term, u)
-                             : mk_interval_lower_lit(term, l2);
-        }
-        const Node& add = term;
-        if (add.kind() != node::Kind::BV_ADD || add.num_children() != 2) {
-            return d_propagator.d_nm.mk_value(true);
-        }
-
-        uint32_t const_idx = 0;
-        uint32_t var_idx = 0;
-        BitVector limit;
-        if (overflow_const_child_info(add, const_idx, var_idx, limit)) {
-            const Node& var = add[var_idx];
-            Node limit_node = d_propagator.d_nm.mk_value(limit);
-            Node lt = d_propagator.d_nm.mk_node(node::Kind::BV_ULT,
-                                                {var, limit_node});
-            Node ge = d_propagator.d_nm.mk_node(node::Kind::BV_UGE,
-                                                {var, limit_node});
-            return d_propagator.d_rewriter.rewrite(take_left ? lt : ge);
-        }
-
-        const bool c0_const = add[0].is_value();
-        const bool c1_const = add[1].is_value();
-        if (c0_const && c1_const) {
-            return d_propagator.d_nm.mk_value(true);
-        }
-        uint32_t child_topo = 0;
-        if (!select_overflow_compare_child(action.d_node_id, child_topo)) {
-            return d_propagator.d_nm.mk_value(true);
-        }
-        const Node& t = d_propagator.d_nodes[child_topo];
-        Node cmp = d_propagator.d_nm.mk_node(node::Kind::BV_ULT, {add, t});
-        cmp = d_propagator.d_rewriter.rewrite(cmp);
-        if (take_left) {
-            return cmp;
-        }
-        return d_propagator.d_rewriter.rewrite(
-            d_propagator.d_nm.mk_node(node::Kind::NOT, {cmp}));
-    }
-
-    return d_propagator.d_nm.mk_value(true);
-}
-
 void PartitionTaskBuilder::normalize_wrapping_interval(const BitVector& l,
                                                        const BitVector& u,
                                                        BitVector& out_min,
@@ -638,7 +581,20 @@ void PartitionTaskBuilder::clear_queue() {
 
 void PartitionTaskBuilder::restore_baseline_nodes() {
     clear_queue();
-    for (uint32_t id : d_propagator.d_changed_nodes) {
+    // for (uint32_t id : d_propagator.d_changed_nodes) {
+    //     const FeasibleDomain* base_dom = baseline_domain_ptr(id);
+    //     if (base_dom) {
+    //         d_propagator.d_domains[id].copy_from(*base_dom);
+    //     }
+    //     else {
+    //         d_propagator.d_domains[id].reset();
+    //     }
+    //     d_propagator.d_changed[id] = false;
+    //     d_propagator.d_enqueued[id] = false;
+    // }
+    
+    // brute-force restore
+    for (uint32_t id = 0; id < d_propagator.d_num_nodes; ++id) {
         const FeasibleDomain* base_dom = baseline_domain_ptr(id);
         if (base_dom) {
             d_propagator.d_domains[id].copy_from(*base_dom);
@@ -649,30 +605,43 @@ void PartitionTaskBuilder::restore_baseline_nodes() {
         d_propagator.d_changed[id] = false;
         d_propagator.d_enqueued[id] = false;
     }
+
     d_propagator.d_changed_nodes.clear();
     d_propagator.d_conflict = false;
 }
 
 PartitionTaskBuilder::BranchEval PartitionTaskBuilder::probe_branch(
-        const PartitionAction& action,
-        bool take_left,
-        OverflowSplitKind overflow_kind) {
-    clear_queue();
-    d_propagator.d_changed_nodes.clear();
-    d_propagator.d_conflict = false;
+    const PartitionAction& action,
+    bool take_left) {
+    // Ensure probe starts from a clean baseline and always rolls back,
+    // even when returning early on invalid/conflict shortcuts.
+    restore_baseline_nodes();
+    struct ProbeRollbackGuard {
+        PartitionTaskBuilder* builder;
+        ~ProbeRollbackGuard() { builder->restore_baseline_nodes(); }
+    } rollback{this};
 
     const uint32_t node_id = action.d_node_id;
     uint32_t target_id = node_id;
     Result res = Result::UNCHANGED;
     BranchEval eval;
-    eval.d_guard = action_branch_guard(action, take_left, overflow_kind);
+    eval.d_guard = d_propagator.d_nm.mk_value(true);
+    const Node& term = d_propagator.d_nodes[node_id];
 
     if (action.d_kind == PartitionKind::BOOL) {
+        if (take_left) {
+            eval.d_guard = d_propagator.d_rewriter.rewrite(
+                d_propagator.d_nm.mk_node(node::Kind::NOT, {term}));
+        }
+        else {
+            eval.d_guard = term;
+        }
         res = d_propagator.d_domains[node_id].set_constant(!take_left);
     }
     else if (action.d_kind == PartitionKind::BV_BIT) {
         const FeasibleDomain& dom = baseline_domain(node_id);
         const uint32_t bit = choose_partition_bit(node_id, dom);
+        eval.d_guard = mk_bit_lit(term, bit, !take_left);
         res = d_propagator.d_domains[node_id].set_fixed(bit, !take_left);
     }
     else if (action.d_kind == PartitionKind::BV_INTERVAL) {
@@ -681,24 +650,30 @@ PartitionTaskBuilder::BranchEval PartitionTaskBuilder::probe_branch(
         BitVector l2;
         BitVector u2;
         if (!compute_interval_split(node_id, l, u, l2, u2)) {
+            eval.d_valid = false;
             return eval;
         }
+        eval.d_guard = take_left ? mk_interval_upper_lit(term, u)
+                                 : mk_interval_lower_lit(term, l2);
         res = apply_wrapping_interval_constraint(
             d_propagator.d_domains[node_id],
             take_left ? l : l2,
             take_left ? u : u2);
     }
     else if (action.d_kind == PartitionKind::BV_ADD_OVERFLOW) {
-        const Node& add = d_propagator.d_nodes[node_id];
+        const Node& add = term;
         assert(add.kind() == node::Kind::BV_ADD && add.num_children() == 2);
-        if (overflow_kind == OverflowSplitKind::OUTPUT_BOUNDARY) {
+        if (action.d_overflow_split == OverflowSplitKind::OUTPUT_BOUNDARY) {
             BitVector l;
             BitVector u;
             BitVector l2;
             BitVector u2;
             if (!compute_interval_split(node_id, l, u, l2, u2)) {
+                eval.d_valid = false;
                 return eval;
             }
+            eval.d_guard = take_left ? mk_interval_upper_lit(term, u)
+                                     : mk_interval_lower_lit(term, l2);
             res = apply_wrapping_interval_constraint(
                 d_propagator.d_domains[node_id],
                 take_left ? l : l2,
@@ -709,8 +684,17 @@ PartitionTaskBuilder::BranchEval PartitionTaskBuilder::probe_branch(
             uint32_t var_idx = 0;
             BitVector limit;
             if (overflow_const_child_info(add, const_idx, var_idx, limit)) {
+                const Node& var = add[var_idx];
+                Node limit_node = d_propagator.d_nm.mk_value(limit);
+                Node lt = d_propagator.d_nm.mk_node(node::Kind::BV_ULT,
+                                                    {var, limit_node});
+                Node ge = d_propagator.d_nm.mk_node(node::Kind::BV_UGE,
+                                                    {var, limit_node});
+                eval.d_guard =
+                    d_propagator.d_rewriter.rewrite(take_left ? lt : ge);
                 const auto& children = d_propagator.d_children[node_id];
                 if (var_idx >= children.size()) {
+                    eval.d_valid = false;
                     return eval;
                 }
                 target_id = children[var_idx];
@@ -735,11 +719,24 @@ PartitionTaskBuilder::BranchEval PartitionTaskBuilder::probe_branch(
                 const bool c0_const = add[0].is_value();
                 const bool c1_const = add[1].is_value();
                 if (c0_const && c1_const) {
+                    eval.d_valid = false;
                     return eval;
                 }
                 uint32_t child_topo = 0;
                 if (!select_overflow_compare_child(node_id, child_topo)) {
+                    eval.d_valid = false;
                     return eval;
+                }
+                const Node& t = d_propagator.d_nodes[child_topo];
+                Node cmp = d_propagator.d_nm.mk_node(node::Kind::BV_ULT,
+                                                     {add, t});
+                cmp = d_propagator.d_rewriter.rewrite(cmp);
+                if (take_left) {
+                    eval.d_guard = cmp;
+                }
+                else {
+                    eval.d_guard = d_propagator.d_rewriter.rewrite(
+                        d_propagator.d_nm.mk_node(node::Kind::NOT, {cmp}));
                 }
                 const FeasibleDomain& x_dom = baseline_domain(child_topo);
                 const uint32_t width =
@@ -774,12 +771,12 @@ PartitionTaskBuilder::BranchEval PartitionTaskBuilder::probe_branch(
         }
     }
     else {
+        eval.d_valid = false;
         return eval;
     }
 
     if (is_conflict(res)) {
         d_propagator.collect_changed(target_id);
-        restore_baseline_nodes();
         eval.d_conflict = true;
         return eval;
     }
@@ -790,7 +787,6 @@ PartitionTaskBuilder::BranchEval PartitionTaskBuilder::probe_branch(
     }
 
     if (d_propagator.d_conflict) {
-        restore_baseline_nodes();
         eval.d_conflict = true;
         return eval;
     }
@@ -808,8 +804,6 @@ PartitionTaskBuilder::BranchEval PartitionTaskBuilder::probe_branch(
     }
     eval.d_uncertainty_reduction =
         std::max(0.0, prop_gain / d_baseline_total);
-
-    restore_baseline_nodes();
     return eval;
 }
 
@@ -1020,6 +1014,7 @@ bool PartitionTaskBuilder::select_best_action(
 
     struct Candidate {
         size_t d_index;
+        PartitionAction d_action;
         double d_score;
         BranchEval d_left;
         BranchEval d_right;
@@ -1027,11 +1022,14 @@ bool PartitionTaskBuilder::select_best_action(
     std::vector<Candidate> candidates;
     candidates.reserve(actions.size() * 2);
 
-    auto evaluate_candidate = [&](const PartitionAction& action,
-                                  size_t index,
-                                  OverflowSplitKind overflow_kind) -> bool {
-        BranchEval left = probe_branch(action, true, overflow_kind);
-        BranchEval right = probe_branch(action, false, overflow_kind);
+    auto evaluate_candidate = [&](PartitionAction action,
+                                  size_t index) -> bool {
+        BranchEval left = probe_branch(action, true);
+        BranchEval right = probe_branch(action, false);
+
+        if (!left.d_valid || !right.d_valid) {
+            return true;
+        }
 
         if (left.d_conflict && right.d_conflict) {
             // display action that caused conflict in both branches
@@ -1043,11 +1041,8 @@ bool PartitionTaskBuilder::select_best_action(
             d_propagator.mark_partition_unsat();
             return false;
         }
-        if (left.d_conflict != right.d_conflict) {
-            const bool take_left = !left.d_conflict;
-            Node guard = action_branch_guard(action,
-                                             take_left,
-                                             overflow_kind);
+        else if (left.d_conflict != right.d_conflict) {
+            Node guard = left.d_conflict ? right.d_guard : left.d_guard;
             const bool is_bool =
                 guard.is_value() && guard.type().is_bool();
             if (is_bool) {
@@ -1057,33 +1052,47 @@ bool PartitionTaskBuilder::select_best_action(
                 d_propagator.mark_partition_unsat();
                 return false;
             }
+            // display common guard:
+#ifdef BZLA_FDP_PARTI_INFO
+            std::cout << "Action " << index
+                      << " caused conflict in one branch, adding common guard:\n";
+            action.display();
+            std::cout << "Common guard:\n";
+            std::cout << guard << "\n";
+#endif
             d_forced_common_guards.emplace_back(guard);
             return true;
         }
 
         const double score = score_action_with_probe(action, left, right);
-        candidates.push_back({index, score, std::move(left), std::move(right)});
+        candidates.push_back({index,
+                              std::move(action),
+                              score,
+                              std::move(left),
+                              std::move(right)});
         return true;
     };
 
     for (size_t i = 0; i < actions.size(); ++i) {
         const PartitionAction& action = actions[i];
         if (action.d_kind == PartitionKind::BV_ADD_OVERFLOW) {
-            if (!evaluate_candidate(action,
-                                    i,
-                                    OverflowSplitKind::COMPARE_CHILD)) {
+            
+            PartitionAction compare_action = action;
+            compare_action.d_overflow_split =
+                OverflowSplitKind::COMPARE_CHILD;
+            if (!evaluate_candidate(std::move(compare_action), i)) {
                 return false;
             }
-            if (!evaluate_candidate(action,
-                                    i,
-                                    OverflowSplitKind::OUTPUT_BOUNDARY)) {
+
+            PartitionAction boundary_action = action;
+            boundary_action.d_overflow_split =
+                OverflowSplitKind::OUTPUT_BOUNDARY;
+            if (!evaluate_candidate(std::move(boundary_action), i)) {
                 return false;
             }
         }
         else {
-            if (!evaluate_candidate(action,
-                                    i,
-                                    OverflowSplitKind::COMPARE_CHILD)) {
+            if (!evaluate_candidate(action, i)) {
                 return false;
             }
         }
@@ -1103,12 +1112,12 @@ bool PartitionTaskBuilder::select_best_action(
 #ifdef BZLA_FDP_PARTI_ENABLE_DEBUG
         std::cout << "Action " << cand.d_index << ": score=" << cand.d_score
                   << ", weight=" << weight << "\n";
-        actions[cand.d_index].display();
+        cand.d_action.display();
         // display domain of selected node
         std::cout << "Node domain:\n";
-        std::cout << d_propagator.d_domains[actions[cand.d_index].d_node_id]
+        std::cout << d_propagator.d_domains[cand.d_action.d_node_id]
                   << "\n";
-        std::cout << d_propagator.d_nodes[actions[cand.d_index].d_node_id]
+        std::cout << d_propagator.d_nodes[cand.d_action.d_node_id]
                   << "\n\n";
 #endif
     }
@@ -1130,8 +1139,7 @@ bool PartitionTaskBuilder::select_best_action(
             }
         }
     }
-    const size_t picked_idx = candidates[picked].d_index;
-    best = actions[picked_idx];
+    best = candidates[picked].d_action;
     best_left = candidates[picked].d_left;
     best_right = candidates[picked].d_right;
     return true;

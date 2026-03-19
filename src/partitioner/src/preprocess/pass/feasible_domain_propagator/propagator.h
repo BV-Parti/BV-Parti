@@ -146,6 +146,7 @@ class Propagator {
     bool d_partition_unsat{false};
     uint64_t d_partition_seed{0};
 
+    std::vector<Node> d_encoded_nodes;
     std::vector<Node> d_final_nodes;
     std::vector<uint32_t> d_final_ids;
 };

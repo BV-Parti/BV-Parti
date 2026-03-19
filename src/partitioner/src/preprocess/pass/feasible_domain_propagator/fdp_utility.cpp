@@ -634,7 +634,7 @@ EncodingMark calc_encoding_mark_diff(uint32_t width,
                                      const BitVector &prev_interval_size,
                                      const BitVector &prev_domain_size) {
     if (width == curr_fixed_count)
-        return EncodingMark::NONE;
+        return EncodingMark::IMPLIED;
     if (width == prev_fixed_count)
         return EncodingMark::BITS;
     const uint32_t bits_encode_thres = INTERIOR_BITS_ENCODE_THRES;

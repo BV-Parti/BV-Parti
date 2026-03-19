@@ -94,16 +94,44 @@ FdpIteOperator::apply() {
 
     return result;
 }
-
-std::vector<uint32_t> FdpIteOperator::implied_by() {
+bool FdpIteOperator::implied_by(std::vector<uint32_t>& child_ids) {
     if (d_children.at(0)->is_totally_fixed()) {
-        const uint32_t branch = d_children.at(0)->get_value(0) ? 1u : 2u;
-        return {0, branch};
+        unsigned branch = d_children.at(0)->get_value(0) ? 1u : 2u;
+        unsigned other_branch = 3u - branch;
+        assert(d_self->get_value(0) == d_children.at(branch)->get_value(0));
+        if (d_children.at(other_branch)->is_totally_fixed()
+          && d_self->get_value(0) != d_children.at(other_branch)->get_value(0)) {
+            // X 1 X -X -> {c, t} | <- X ? ? -X
+            child_ids = {0, branch};
+            return true;
+        }
+        else {
+            // X 1 X  X -> {t} | <- X 1 ? X
+            // X 1 X  ? -> {t} | <- X 1 ? ?
+            child_ids = {branch};
+            return true;
+        }
     }
-    else if (d_children.at(1)->is_totally_fixed() && d_children.at(2)->is_totally_fixed()) {
-        if (d_children.at(1)->get_value(0) == d_children.at(2)->get_value(0))
-            return {1, 2};
+    else {
+        if (d_children.at(1)->is_totally_fixed() && d_children.at(2)->is_totally_fixed()
+          && d_children.at(1)->get_value(0) == d_children.at(2)->get_value(0)) {
+            // X ? X X -> false
+            return false;
+        }
+        else {
+            // X ? -X -X -> impossible conf
+
+            // X ? ? -X -> impossible up
+            // X ? -X ? -> impossible up
+            // X ? -X X -> impossible up
+            // X ? X -X -> impossible up
+
+            // X ? X ? -> {}
+            // X ? ? X -> {}
+            // X ? ? ? -> {}
+            child_ids = {};
+            return true;
+        }
     }
-    return {};
 }
 }  // namespace bzla::preprocess::pass::fdp

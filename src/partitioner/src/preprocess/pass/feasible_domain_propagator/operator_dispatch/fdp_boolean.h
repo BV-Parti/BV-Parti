@@ -18,7 +18,7 @@ class FdpNotOperator : public FdpOperator {
           d_stats(stats) {}
 
     Result apply() override;
-    std::vector<uint32_t> implied_by();
+    bool implied_by(std::vector<uint32_t>& child_ids);
 
   private:
     OperatorStatistics& d_stats;
@@ -36,7 +36,7 @@ class FdpXorOperator : public FdpOperator {
           d_stats(stats) {}
 
     Result apply() override;
-    std::vector<uint32_t> implied_by();
+    bool implied_by(std::vector<uint32_t>& child_ids);
 
   private:
     OperatorStatistics& d_stats;
@@ -54,7 +54,7 @@ class FdpAndOperator : public FdpOperator {
           d_stats(stats) {}
 
     Result apply() override;
-    std::vector<uint32_t> implied_by();
+    bool implied_by(std::vector<uint32_t>& child_ids);
 
   private:
     OperatorStatistics& d_stats;

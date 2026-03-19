@@ -12,7 +12,7 @@ class FdpIteOperator : public FdpOperator {
                    DomainVector &children,
                    FeasibleDomain *self);
     Result apply() override;
-    std::vector<uint32_t> implied_by();
+    bool implied_by(std::vector<uint32_t>& child_ids);
 
   private:
     OperatorStatistics &d_stats;

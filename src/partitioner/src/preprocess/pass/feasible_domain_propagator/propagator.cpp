@@ -568,9 +568,10 @@ void Propagator::collect_propagated_frontier() {
         }
 
         std::vector<uint32_t> child_ids;
+        bool res(false);
 #define DISPATCH(kind, name)                                                      \
     case node::Kind::kind: {                                                      \
-        child_ids = Fdp##name##Operator(d_stats, children, &output).implied_by(); \
+        res = Fdp##name##Operator(d_stats, children, &output).implied_by(child_ids); \
         break;                                                                    \
     }
         switch (k) {
@@ -591,17 +592,18 @@ void Propagator::collect_propagated_frontier() {
             }
         }
 #undef DISPATCH
-
-        if (!child_ids.empty()) {
-            for (uint32_t idx : child_ids) {
-                uint32_t child_id = d_children[node_id][idx];
-                enqueue(child_id);
+        if (res) {
+            if (!child_ids.empty()) {
+                for (uint32_t idx : child_ids) {
+                    uint32_t child_id = d_children[node_id][idx];
+                    enqueue(child_id);
+                }
             }
-        }
-        else {
-            // std::cerr << "d_propagated_frontier node id: " << node_id << " value: " << output.get_value(0) << std::endl;
-            // std::cerr << "d_propagated_frontier node: " << d_nodes[node_id] << std::endl;
-            d_propagated_frontier.emplace_back(node_id, output.get_value(0));
+            else {
+                // std::cerr << "d_propagated_frontier node id: " << node_id << " value: " << output.get_value(0) << std::endl;
+                // std::cerr << "d_propagated_frontier node: " << d_nodes[node_id] << std::endl;
+                d_propagated_frontier.emplace_back(node_id, output.get_value(0));
+            }
         }
     }
 }
@@ -690,6 +692,13 @@ void Propagator::mark_encoding_domains() {
 
     d_changed_nodes.clear();
 
+    // // brute-force reset
+    // for (uint32_t id = 0; id < d_num_nodes; ++id) {
+    //     d_changed[id] = false;
+    //     d_domains[id].reset();
+    // }
+
+
     std::sort(marked_ids.begin(), marked_ids.end(), [&marked_infos](uint32_t lhs, uint32_t rhs) {
         return marked_infos[lhs] < marked_infos[rhs];
     });
@@ -735,7 +744,7 @@ void Propagator::mark_encoding_domains() {
     feasible_domain_propagate();
     if (d_conflict)
         return;
-    
+
     // // encode symbols only
     // d_base_propagate_cnt = d_propagate_cnt;
     // return;
@@ -756,7 +765,7 @@ void Propagator::mark_encoding_domains() {
             domain.count_fixed(),
             info.d_interval_size,
             info.d_domain_size);
-        if (mark != EncodingMark::NONE) {
+        if (mark != EncodingMark::NONE && mark != EncodingMark::IMPLIED) {
             d_marks[topo_id] = mark;
             Result res = d_domains[topo_id].overwrite(domain, mark);
             if (is_conflict(res)) {
@@ -777,6 +786,13 @@ void Propagator::remove_redundant_frontier_nodes() {
         return;
 
     d_reduced_frontier.clear();
+
+    // // brute force reduced frontier
+    // for (auto [node_id, value] : d_propagated_frontier) {
+    //     // Push: add the frontier assignment and propagate its effect.
+    //     d_reduced_frontier.emplace_back(node_id, value);
+    // }
+    // return;
 
     FdPrefixArray& history = *d_fd_prefix;
     struct FrontierNodeInfo {
@@ -1122,6 +1138,14 @@ void Propagator::rebuild_dag_after_encoding() {
     std::unique_ptr<bool[]> is_relevant = std::make_unique<bool[]>(d_num_nodes);
     std::fill_n(is_relevant.get(), d_num_nodes, false);
 
+    // for (auto [node_id, value] : d_reduced_frontier) {
+    //     Node root = d_nodes[node_id];
+    //     if (!value)
+    //         root = d_nm.mk_node(node::Kind::NOT, {root});
+    //     d_final_roots.emplace_back(root);
+    // }
+    // return;
+
     assert(d_fd_prefix && "fdp prefix history missing when rebuilding DAG");
     FdPrefixArray& history = *d_fd_prefix;
 
@@ -1131,22 +1155,25 @@ void Propagator::rebuild_dag_after_encoding() {
         is_relevant[node_id] = true;
     }
 
+    // for (const auto& [node_id, value] : d_propagated_frontier) {
+    //     is_relevant[node_id] = true;
+    // }
+
     const auto base_changed = history.level0_changed_nodes();
     for (uint32_t node_id : base_changed) {
         const FeasibleDomain* dom_ptr = history.get_ptr(node_id, 0);
         if (dom_ptr == nullptr) {
             continue;
         }
-        if (dom_ptr->is_totally_fixed() || d_marks[node_id] != EncodingMark::NONE) {
+        if (dom_ptr->is_totally_fixed()) {
+            is_relevant[node_id] = true;
+        }
+        else if (d_marks[node_id] != EncodingMark::NONE && d_marks[node_id] != EncodingMark::IMPLIED) {
             is_relevant[node_id] = true;
         }
     }
 
-    // // mark relevant nodes by topo order
-    // for (auto [node_id, value] : d_propagated_frontier) {
-    //     is_relevant[node_id] = true;
-    // }
-
+    // mark relevant nodes by topo order
     for (uint32_t i = 0; i < d_num_nodes; ++i) {
         if (is_relevant[i]) {
             for (uint32_t child_id : d_children[i]) {
@@ -1160,6 +1187,7 @@ void Propagator::rebuild_dag_after_encoding() {
         if (!is_relevant[i]) {
             d_final_ids[i] = UINT32_MAX;
             d_marks[i] = EncodingMark::REMOVED;
+            // std::cout << "Removing node " << i << " (" << d_nodes[i] << ") from final DAG\n";
             continue;
         }
         const FeasibleDomain* dom_ptr = history.get_ptr(i, 0);
@@ -1204,23 +1232,29 @@ void Propagator::rebuild_dag_after_encoding() {
                     else {
                         assert(false && "Unsupported type for totally fixed domain");
                     }
-                    if (d_marks[i] != EncodingMark::NONE) {
-                        assert(d_marks[i] == EncodingMark::BITS && "Only bit encoding expected for totally fixed nodes");
+                    // // Add equality assertion between the original node and the constant.
+                    // Node assertion = d_nm.mk_node(node::Kind::EQUAL, {new_node, cur});
+                    // assertion = d_rewriter.rewrite(assertion);
+                    // // Drop trivial assertions that rewrite to 'true'.
+                    // if (!assertion.is_value() || !assertion.value<bool>()) {
+                    //     // d_final_roots.emplace_back(assertion);
+                    //     d_encoded_nodes.emplace_back(assertion);
+                    // }
+                    // if (d_marks[i] == EncodingMark::NONE) {
+                    //     std::cout << "Warning: node " << i << " (" << d_nodes[i] << ") is totally fixed but has encoding mark NONE\n";
+                    // }
+                    if (d_marks[i] != EncodingMark::IMPLIED) {
+                        // std::cout << "Warning: node " << i << " (" << d_nodes[i] << ") is totally fixed but has encoding mark " << static_cast<int>(d_marks[i]) << " instead of IMPLIED\n";
+                        // assert(d_marks[i] == EncodingMark::BITS && "Only bit encoding expected for totally fixed nodes");
                         // Add equality assertion between the original node and the constant.
                         Node assertion = d_nm.mk_node(node::Kind::EQUAL, {new_node, cur});
                         assertion = d_rewriter.rewrite(assertion);
                         // Drop trivial assertions that rewrite to 'true'.
                         if (!assertion.is_value() || !assertion.value<bool>()) {
-                            d_final_roots.emplace_back(assertion);
+                            // d_final_roots.emplace_back(assertion);
+                            d_encoded_nodes.emplace_back(assertion);
                         }
                     }
-                    // Node assertion = d_nm.mk_node(node::Kind::EQUAL, {new_node, cur});
-                    // assertion = d_rewriter.rewrite(assertion);
-                    // // Drop trivial assertions that rewrite to 'true'.
-                    // if (!assertion.is_value() || !assertion.value<bool>()) {
-                    //     d_final_roots.emplace_back(assertion);
-                    // }
-
                     new_node = cur;
                 }
             }
@@ -1237,6 +1271,20 @@ void Propagator::rebuild_dag_after_encoding() {
         if (!value)
             root = d_nm.mk_node(node::Kind::NOT, {root});
         d_final_roots.emplace_back(root);
+    }
+
+    // // d_propagated_frontier
+    // for (auto [node_id, value] : d_propagated_frontier) {
+    //     uint32_t final_id = d_final_ids[node_id];
+    //     assert(final_id != UINT32_MAX);
+    //     Node root = d_final_nodes[final_id];
+    //     if (!value)
+    //         root = d_nm.mk_node(node::Kind::NOT, {root});
+    //     d_final_roots.emplace_back(root);
+    // }
+
+    for (auto& node : d_encoded_nodes) {
+        d_final_roots.emplace_back(node);
     }
 }
 
@@ -1267,7 +1315,7 @@ void Propagator::encode_marked_node(const Node node, const FeasibleDomain& domai
         }
         new_node = d_rewriter.rewrite(new_node);
         // std::cout << "Encoding bits for node " << node << "\nas\n" << new_node << "\n";
-        d_final_roots.emplace_back(new_node);
+        d_encoded_nodes.emplace_back(new_node);
     };
     auto encode_intervals = [&]() {
         // Complementary interval: x - upper <= lower - upper.
@@ -1530,6 +1578,11 @@ void Propagator::run_propagation_only(const std::vector<Node>& roots) {
 }
 
 void Propagator::run(const std::vector<Node>& roots) {
+    // for (const Node & node : roots) {
+    //     d_final_roots.emplace_back(node);
+    // }
+    // return ;
+
     reset_run_state();
     init_nodes_in_topo(roots);
     initialize_domains();
@@ -1548,9 +1601,16 @@ void Propagator::run(const std::vector<Node>& roots) {
     // exit(0);
 
     collect_propagated_frontier();
+#ifdef BZLA_FDP_PARTI_INFO
+    std::cout << "[collect_propagated_frontier] bool frontier size from "
+                << roots.size() << " to "
+                << d_propagated_frontier.size() << "\n";
+    fdp_time_log("after_remove_redundant");
+
+#endif
     FDP_DEBUG_RUN(debug_check_frontier("collect_propagated_frontier"));
     mark_encoding_domains();
-    
+
 #ifdef BZLA_FDP_PARTI_INFO
     std::cout << "[mark_encoding] " << d_base_propagate_cnt << " propagations\n";
     fdp_time_log("after_mark_encoding");
@@ -1622,6 +1682,11 @@ void Propagator::run(const std::vector<Node>& roots) {
     FDP_DEBUG_RUN(debug_check_frontier("encode_marked_nodes"));
 #ifdef BZLA_FDP_PARTI_INFO
     // fdp_time_log("after_remove_redundant");
+
+    std::cout << "[rebuild_dag_after_encoding] frontier size from "
+                << d_reduced_frontier.size() << " to "
+                << d_final_roots.size()
+                << ", encodes: " << d_encoded_nodes.size() << "\n";
     fdp_time_log("after_rebuild_dag");
 #endif
     // // Final propagation to check we can get top true with new frontier and encoded nodes
